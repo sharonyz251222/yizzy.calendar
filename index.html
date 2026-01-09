@@ -1,0 +1,480 @@
+import React, { useState, useEffect, useMemo } from 'react';
+import { initializeApp } from 'firebase/app';
+import { 
+  getFirestore, collection, doc, onSnapshot, 
+  deleteDoc, updateDoc, addDoc 
+} from 'firebase/firestore';
+import { 
+  getAuth, onAuthStateChanged, 
+  GoogleAuthProvider, signInWithPopup, signOut 
+} from 'firebase/auth';
+import { 
+  ChevronLeft, ChevronRight, Plus, Trash2, Edit3, 
+  Calendar as CalendarIcon, CheckCircle2, Circle,
+  Target, LogIn, LogOut, User, AlertCircle, Save, Clock
+} from 'lucide-react';
+
+// --- Firebase Configuration ---
+const firebaseConfig = {
+  apiKey: "AIzaSyDD9FRRoFVTgVq1DVxSBTtxQnDN5aQw6L4",
+  authDomain: "yizzy-calendar.firebaseapp.com",
+  projectId: "yizzy-calendar",
+  storageBucket: "yizzy-calendar.firebasestorage.app",
+  messagingSenderId: "31957841418",
+  appId: "1:31957841418:web:a284ace128d1ef2bccd1f3"
+};
+
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db = getFirestore(app);
+const appId = 'yizzy-planner-2026';
+
+// --- Constants ---
+const MONTH_NAMES = [
+  "JANUARY", "FEBRUARY", "MARCH", "APRIL", "MAY", "JUNE",
+  "JULY", "AUGUST", "SEPTEMBER", "OCTOBER", "NOVEMBER", "DECEMBER"
+];
+
+const WEEK_DAYS = ["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"];
+
+const MONTH_THEMES = [
+  { bg: 'bg-[#E1F5FE]', text: 'text-blue-800', border: 'border-blue-200', accent: '#B3E5FC', accentDeep: '#0288D1' },
+  { bg: 'bg-[#FCE4EC]', text: 'text-pink-800', border: 'border-pink-200', accent: '#F8BBD0', accentDeep: '#D81B60' },
+  { bg: 'bg-[#E8F5E9]', text: 'text-green-800', border: 'border-green-200', accent: '#C8E6C9', accentDeep: '#2E7D32' },
+  { bg: 'bg-[#FFF9C4]', text: 'text-yellow-800', border: 'border-yellow-200', accent: '#FFF59D', accentDeep: '#FBC02D' },
+  { bg: 'bg-[#F3E5F5]', text: 'text-purple-800', border: 'border-purple-200', accent: '#E1BEEF', accentDeep: '#7B1FA2' },
+  { bg: 'bg-[#FFF3E0]', text: 'text-orange-800', border: 'border-orange-200', accent: '#FFE0B2', accentDeep: '#EF6C00' },
+  { bg: 'bg-[#EFEBE9]', text: 'text-stone-800', border: 'border-stone-200', accent: '#D7CCC8', accentDeep: '#4E342E' },
+  { bg: 'bg-[#E0F2F1]', text: 'text-teal-800', border: 'border-teal-200', accent: '#B2DFDB', accentDeep: '#00695C' },
+  { bg: 'bg-[#F1F8E9]', text: 'text-lime-800', border: 'border-lime-200', accent: '#DCEDC8', accentDeep: '#558B2F' },
+  { bg: 'bg-[#FFFDE7]', text: 'text-amber-800', border: 'border-amber-200', accent: '#FFF9C4', accentDeep: '#FF8F00' },
+  { bg: 'bg-[#E8EAF6]', text: 'text-indigo-800', border: 'border-indigo-200', accent: '#C5CAE9', accentDeep: '#283593' },
+  { bg: 'bg-[#F9FBE7]', text: 'text-yellow-700', border: 'border-yellow-100', accent: '#F0F4C3', accentDeep: '#9E9D24' },
+];
+
+const HOLIDAYS_2026 = [
+  { name: "元旦", date: "2026-01-01", end: "2026-01-01" },
+  { name: "春節", date: "2026-02-14", end: "2026-02-22" },
+  { name: "228連假", date: "2026-02-27", end: "2026-03-01" },
+  { name: "清明連假", date: "2026-04-03", end: "2026-04-06" },
+  { name: "五一勞動", date: "2026-05-01", end: "2026-05-03" },
+  { name: "端午連假", date: "2026-06-19", end: "2026-06-21" },
+  { name: "中秋連假", date: "2026-09-25", end: "2026-09-28" },
+  { name: "國慶連假", date: "2026-10-09", end: "2026-10-11" },
+  { name: "行憲紀念", date: "2026-12-25", end: "2026-12-25" },
+];
+
+export default function App() {
+  const [user, setUser] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [tasks, setTasks] = useState([]);
+  const [currentDate, setCurrentDate] = useState(new Date());
+  const [viewMode, setViewMode] = useState('month'); // 'month' or 'week'
+  const [editingTask, setEditingTask] = useState(null);
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [errorMsg, setErrorMsg] = useState('');
+  
+  const [formData, setFormData] = useState({
+    title: '', note: '', time: '', date: ''
+  });
+
+  useEffect(() => {
+    document.title = "✨Yizzy Calender";
+  }, []);
+
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+      setUser(currentUser);
+      setLoading(false);
+      if (!currentUser) {
+        const saved = localStorage.getItem('yizzy_local_tasks');
+        if (saved) setTasks(JSON.parse(saved));
+      }
+    });
+    return () => unsubscribe();
+  }, []);
+
+  const handleGoogleLogin = async () => {
+    setErrorMsg('');
+    const provider = new GoogleAuthProvider();
+    try {
+      await signInWithPopup(auth, provider);
+    } catch (error) {
+      if (error.code === 'auth/unauthorized-domain') {
+        setErrorMsg('此網域未授權。請將此 URL 加入 Firebase 授權網域，或暫時使用本地模式。');
+      } else {
+        setErrorMsg('登入失敗，請稍後再試。');
+      }
+      setTimeout(() => setErrorMsg(''), 5000);
+    }
+  };
+
+  const handleLogout = async () => {
+    try {
+      await signOut(auth);
+      const saved = localStorage.getItem('yizzy_local_tasks');
+      setTasks(saved ? JSON.parse(saved) : []);
+    } catch (error) { console.error(error); }
+  };
+
+  useEffect(() => {
+    if (!user) return;
+    const q = collection(db, 'artifacts', appId, 'users', user.uid, 'tasks');
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const taskList = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setTasks(taskList);
+      localStorage.setItem('yizzy_local_tasks', JSON.stringify(taskList));
+    }, (err) => console.error(err));
+    return () => unsubscribe();
+  }, [user]);
+
+  const currentMonth = currentDate.getMonth();
+  const currentYear = currentDate.getFullYear();
+  const theme = MONTH_THEMES[currentMonth] || MONTH_THEMES[0];
+
+  const getYearProgress = () => {
+    const now = new Date();
+    const start = new Date(now.getFullYear(), 0, 1);
+    const end = new Date(now.getFullYear(), 11, 31);
+    const passed = Math.ceil((now - start) / (1000 * 60 * 60 * 24));
+    const total = Math.ceil((end - start + 86400000) / (1000 * 60 * 60 * 24));
+    return { passed, remaining: total - passed };
+  };
+
+  const { passed, remaining } = getYearProgress();
+
+  const getHoliday = (dateStr) => {
+    return HOLIDAYS_2026.find(h => {
+      const target = new Date(dateStr + "T00:00:00");
+      const start = new Date(h.date + "T00:00:00");
+      const end = new Date(h.end + "T00:00:00");
+      return target >= start && target <= end;
+    });
+  };
+
+  // 精準對齊月曆日期 (42格)
+  const calendarDays = useMemo(() => {
+    const firstDayOfMonth = new Date(currentYear, currentMonth, 1);
+    // getDay() 0=Sun, 1=Mon, ..., 6=Sat
+    // 我們想要 Mon=0, Tue=1, ..., Sun=6 的邏輯
+    let firstDayIndex = firstDayOfMonth.getDay(); 
+    if (firstDayIndex === 0) firstDayIndex = 7; // 把週日從 0 改成 7
+    const daysFromPrev = firstDayIndex - 1; // 計算前面要補幾天
+
+    const days = [];
+    const tempDate = new Date(currentYear, currentMonth, 1);
+    tempDate.setDate(tempDate.getDate() - daysFromPrev); // 回溯到該週的第一天(週一)
+
+    for (let i = 0; i < 42; i++) {
+      days.push(new Date(tempDate));
+      tempDate.setDate(tempDate.getDate() + 1);
+    }
+    return days;
+  }, [currentMonth, currentYear]);
+
+  // 生成當週天數 (7格)
+  const weekDays = useMemo(() => {
+    const tempDate = new Date(currentDate);
+    let day = tempDate.getDay();
+    if (day === 0) day = 7;
+    const diff = day - 1;
+    tempDate.setDate(tempDate.getDate() - diff);
+    const days = [];
+    for (let i = 0; i < 7; i++) {
+      days.push(new Date(tempDate));
+      tempDate.setDate(tempDate.getDate() + 1);
+    }
+    return days;
+  }, [currentDate]);
+
+  const handleSaveTask = async (e) => {
+    e.preventDefault();
+    const data = { ...formData, completed: false, updatedAt: Date.now() };
+    if (user) {
+      if (editingTask) await updateDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'tasks', editingTask.id), data);
+      else await addDoc(collection(db, 'artifacts', appId, 'users', user.uid, 'tasks'), data);
+    } else {
+      const newTasks = editingTask 
+        ? tasks.map(t => t.id === editingTask.id ? { ...t, ...data } : t)
+        : [...tasks, { ...data, id: Date.now().toString() }];
+      setTasks(newTasks);
+      localStorage.setItem('yizzy_local_tasks', JSON.stringify(newTasks));
+    }
+    setIsModalOpen(false);
+    setEditingTask(null);
+    setFormData({ title: '', note: '', time: '', date: '' });
+  };
+
+  const deleteTask = async (id) => {
+    if (user) await deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'tasks', id));
+    else {
+      const newTasks = tasks.filter(t => t.id !== id);
+      setTasks(newTasks);
+      localStorage.setItem('yizzy_local_tasks', JSON.stringify(newTasks));
+    }
+  };
+
+  const toggleComplete = async (task) => {
+    if (user) await updateDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'tasks', task.id), { completed: !task.completed });
+    else {
+      const newTasks = tasks.map(t => t.id === task.id ? { ...t, completed: !t.completed } : t);
+      setTasks(newTasks);
+      localStorage.setItem('yizzy_local_tasks', JSON.stringify(newTasks));
+    }
+  };
+
+  const openAddModal = (dateStr) => {
+    setFormData({ ...formData, date: dateStr || new Date().toISOString().split('T')[0] });
+    setEditingTask(null);
+    setIsModalOpen(true);
+  };
+
+  const openEditModal = (task) => {
+    setEditingTask(task);
+    setFormData({ title: task.title, note: task.note, time: task.time, date: task.date });
+    setIsModalOpen(true);
+  };
+
+  const monthOverviewTasks = tasks.filter(t => t.date && t.date.startsWith(`${currentYear}-${String(currentMonth + 1).padStart(2, '0')}`));
+
+  const changeWeek = (direction) => {
+    const nextDate = new Date(currentDate);
+    nextDate.setDate(nextDate.getDate() + (direction * 7));
+    setCurrentDate(nextDate);
+  };
+
+  const changeMonth = (direction) => {
+    setCurrentDate(new Date(currentYear, currentMonth + direction, 1));
+  };
+
+  return (
+    <div className={`min-h-screen ${theme.bg} transition-colors duration-500 font-sans text-sm p-4 md:p-8`}>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Quicksand:wght@400;500;600;700&family=Noto+Sans+TC:wght@400;500;700&display=swap');
+        body { font-family: 'Quicksand', 'Noto Sans TC', sans-serif; overflow-x: hidden; }
+        .pastel-shadow { box-shadow: 0 10px 30px -10px rgba(0,0,0,0.03); }
+        .custom-scrollbar::-webkit-scrollbar { width: 4px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.05); border-radius: 10px; }
+      `}</style>
+
+      {errorMsg && (
+        <div className="fixed top-6 left-1/2 -translate-x-1/2 z-[100] bg-white p-4 rounded-2xl shadow-2xl border-l-4 border-red-400 flex items-center gap-3 animate-bounce">
+          <AlertCircle className="text-red-400" size={20} />
+          <p className="text-xs font-bold text-gray-600">{errorMsg}</p>
+        </div>
+      )}
+
+      {/* Header */}
+      <header className="max-w-6xl mx-auto flex flex-col md:flex-row items-center justify-between mb-8 gap-4">
+        <div className="flex items-center gap-4">
+          <div className="flex items-center gap-1">
+            <button onClick={() => viewMode === 'month' ? changeMonth(-1) : changeWeek(-1)} className="p-2 hover:bg-white/50 rounded-full transition-all"><ChevronLeft size={18}/></button>
+            <h1 className={`text-2xl md:text-3xl font-bold tracking-wider ${theme.text} min-w-[220px] text-center`}>
+              {viewMode === 'month' ? `${MONTH_NAMES[currentMonth]} ${currentYear}` : `WEEK OF ${currentDate.getDate()} ${MONTH_NAMES[currentMonth]}`}
+            </h1>
+            <button onClick={() => viewMode === 'month' ? changeMonth(1) : changeWeek(1)} className="p-2 hover:bg-white/50 rounded-full transition-all"><ChevronRight size={18}/></button>
+          </div>
+          <button 
+            onClick={() => setCurrentDate(new Date())}
+            className="hidden md:flex items-center gap-1.5 px-4 py-1.5 bg-white/60 hover:bg-white text-gray-500 rounded-full border border-white shadow-sm transition-all text-[10px] font-bold"
+          >
+            <Target size={14}/> TODAY
+          </button>
+        </div>
+
+        <div className="flex items-center gap-3">
+          {!user ? (
+            <button onClick={handleGoogleLogin} className="flex items-center gap-2 px-4 py-2 bg-white/60 hover:bg-white text-gray-600 rounded-full border border-white shadow-sm text-[10px] font-bold"><LogIn size={14}/> LOGIN</button>
+          ) : (
+            <div className="flex items-center gap-2 bg-white/40 p-1 pl-3 rounded-full border border-white">
+              <div className="flex items-center gap-2 pr-2 border-r border-white/50">
+                {user.photoURL ? <img src={user.photoURL} className="w-5 h-5 rounded-full" /> : <User size={14} className="text-gray-400" />}
+                <span className="text-[10px] font-bold text-gray-600 truncate max-w-[80px]">{user.displayName || 'User'}</span>
+              </div>
+              <button onClick={handleLogout} className="p-1.5 hover:text-red-400"><LogOut size={14}/></button>
+            </div>
+          )}
+          <div className="flex bg-white/40 p-1 rounded-2xl border border-white/50">
+            <button onClick={() => setViewMode('month')} className={`px-4 py-1.5 rounded-xl text-[10px] font-bold transition-all ${viewMode === 'month' ? 'bg-white shadow-sm' : 'opacity-40'}`}>MONTH</button>
+            <button onClick={() => setViewMode('week')} className={`px-4 py-1.5 rounded-xl text-[10px] font-bold transition-all ${viewMode === 'week' ? 'bg-white shadow-sm' : 'opacity-40'}`}>WEEK</button>
+          </div>
+        </div>
+      </header>
+
+      <main className="max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-4 gap-8">
+        
+        {/* Sidebar */}
+        <section className="lg:col-span-1 space-y-6">
+          <div className="bg-white/50 p-6 rounded-[2.5rem] border border-white pastel-shadow">
+            <div className="flex justify-between items-center mb-6">
+              <h2 className={`text-lg font-bold ${theme.text} flex items-center gap-2`}>
+                <CalendarIcon size={18}/> {MONTH_NAMES[currentMonth]}
+              </h2>
+              {!user && <span className="text-[9px] font-bold text-orange-400 bg-orange-50 px-2 py-1 rounded-full"><Save size={10}/> LOCAL</span>}
+            </div>
+            
+            <div className="space-y-3 overflow-y-auto max-h-[55vh] pr-2 custom-scrollbar">
+              {monthOverviewTasks.length === 0 ? (
+                <div className="text-center py-10 opacity-30 italic text-xs">No tasks this month</div>
+              ) : (
+                monthOverviewTasks.sort((a,b) => a.date.localeCompare(b.date)).map(task => (
+                  <div key={task.id} className="group relative bg-white/80 p-3 rounded-2xl border border-white/50 hover:shadow-md transition-all">
+                    <div className="flex justify-between items-start mb-1">
+                      <span className="text-[9px] font-bold text-gray-400">{task.date}</span>
+                      <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <button onClick={() => openEditModal(task)} className="p-1 hover:text-blue-400"><Edit3 size={12}/></button>
+                        <button onClick={() => deleteTask(task.id)} className="p-1 hover:text-red-400"><Trash2 size={12}/></button>
+                      </div>
+                    </div>
+                    <div className="flex items-start gap-2">
+                      <button onClick={() => toggleComplete(task)} className="mt-0.5">
+                        {task.completed ? <CheckCircle2 size={16} className="text-green-400" /> : <Circle size={16} className="text-gray-200" />}
+                      </button>
+                      <div className="flex flex-col">
+                        <span className={`${task.completed ? 'line-through text-gray-300' : 'text-gray-600'} font-bold break-all text-xs`}>{task.title}</span>
+                      </div>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+            <button onClick={() => openAddModal()} className="w-full mt-6 flex items-center justify-center gap-2 p-3 bg-white/80 text-gray-400 rounded-2xl border-2 border-dashed border-gray-100 hover:border-pink-200 hover:text-pink-400 transition-all font-bold text-xs"><Plus size={16}/> NEW PLAN</button>
+          </div>
+
+          <div className="bg-white/30 p-5 rounded-[2rem] border border-white/50 text-center">
+             <div className="h-1.5 w-full bg-white/50 rounded-full overflow-hidden mb-2">
+                <div className="h-full bg-pink-300 transition-all duration-1000" style={{ width: `${(passed/365)*100}%` }}></div>
+             </div>
+             <p className="text-[9px] font-bold text-gray-500 uppercase tracking-tighter">{passed} DAYS PASSED · {remaining} LEFT</p>
+          </div>
+        </section>
+
+        {/* Calendar / Week Grid */}
+        <section className="lg:col-span-3">
+          {viewMode === 'month' ? (
+            <div className="bg-white/40 p-2 rounded-[2.5rem] border border-white/50 overflow-hidden pastel-shadow">
+              <div className="grid grid-cols-7 mb-2">
+                {WEEK_DAYS.map((day, i) => (
+                  <div key={day} className={`text-center py-4 text-[10px] font-extrabold tracking-widest ${i >= 5 ? 'text-pink-300' : 'text-gray-400'}`}>{day}</div>
+                ))}
+              </div>
+              <div className="grid grid-cols-7 gap-1">
+                {calendarDays.map((date, idx) => {
+                  const y = date.getFullYear();
+                  const m = String(date.getMonth() + 1).padStart(2, '0');
+                  const d = String(date.getDate()).padStart(2, '0');
+                  const dateStr = `${y}-${m}-${d}`;
+
+                  const isCurrentMonth = date.getMonth() === currentMonth;
+                  const isToday = date.toDateString() === new Date().toDateString();
+                  const dayTasks = tasks.filter(t => t.date === dateStr);
+                  const holiday = getHoliday(dateStr);
+
+                  return (
+                    <div key={idx} className={`min-h-[110px] md:min-h-[135px] p-2 rounded-2xl border transition-all relative group ${isCurrentMonth ? 'bg-white/80 border-white' : 'bg-transparent border-transparent opacity-10 pointer-events-none'} ${isToday ? 'ring-2 ring-white ring-offset-2 z-10' : ''}`}>
+                      <div className="flex justify-between items-center mb-1">
+                        <span className={`text-xs font-bold ${isToday ? 'bg-pink-400 text-white px-2 py-0.5 rounded-full' : (date.getDay() === 0 || date.getDay() === 6 ? 'text-pink-300' : 'text-gray-500')}`}>{date.getDate()}</span>
+                        {isCurrentMonth && <button onClick={() => openAddModal(dateStr)} className="opacity-0 group-hover:opacity-100 p-1 text-gray-300"><Plus size={12}/></button>}
+                      </div>
+                      {holiday && isCurrentMonth && <div className="text-[8px] px-1.5 py-0.5 rounded-full mb-1 inline-block font-bold text-white shadow-sm truncate max-w-full" style={{ backgroundColor: theme.accentDeep }}>{holiday.name}</div>}
+                      <div className="space-y-0.5">
+                        {dayTasks.slice(0, 4).map(task => (
+                          <div key={task.id} onClick={() => openEditModal(task)} className={`truncate text-[9px] px-1.5 py-0.5 rounded-md cursor-pointer font-bold border ${task.completed ? 'bg-gray-50 text-gray-200 border-transparent' : 'bg-white border-white/50 text-gray-600 shadow-sm'}`}>
+                            {task.title}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {weekDays.map((date, idx) => {
+                const y = date.getFullYear();
+                const m = String(date.getMonth() + 1).padStart(2, '0');
+                const d = String(date.getDate()).padStart(2, '0');
+                const dateStr = `${y}-${m}-${d}`;
+
+                const isToday = date.toDateString() === new Date().toDateString();
+                const dayTasks = tasks.filter(t => t.date === dateStr);
+                const holiday = getHoliday(dateStr);
+
+                return (
+                  <div key={idx} className={`bg-white/60 p-6 rounded-[2.5rem] border border-white flex gap-6 pastel-shadow ${isToday ? 'ring-2 ring-white' : ''}`}>
+                    <div className="flex flex-col items-center justify-center min-w-[70px] border-r border-white/50 pr-6">
+                      <span className={`text-[10px] font-bold tracking-widest mb-1 ${date.getDay() === 0 || date.getDay() === 6 ? 'text-pink-300' : 'text-gray-400'}`}>
+                        {WEEK_DAYS[(date.getDay() + 6) % 7]}
+                      </span>
+                      <span className={`text-3xl font-bold ${isToday ? 'text-pink-500' : 'text-gray-600'}`}>{date.getDate()}</span>
+                      {holiday && <span className="text-[9px] font-bold mt-2 px-2 py-0.5 rounded-full text-white" style={{ backgroundColor: theme.accentDeep }}>{holiday.name}</span>}
+                    </div>
+                    
+                    <div className="flex-1 space-y-3">
+                      <div className="flex justify-between items-center">
+                        <span className="text-[10px] font-bold text-gray-300 uppercase tracking-widest">{dayTasks.length} PLANS</span>
+                        <button onClick={() => openAddModal(dateStr)} className="p-2 bg-white/50 rounded-full hover:bg-white text-gray-400 transition-all"><Plus size={16}/></button>
+                      </div>
+                      
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        {dayTasks.map(task => (
+                          <div key={task.id} onClick={() => openEditModal(task)} className="bg-white/80 p-4 rounded-3xl border border-white flex items-center justify-between group cursor-pointer hover:shadow-md transition-all">
+                            <div className="flex items-center gap-3">
+                              <button onClick={(e) => { e.stopPropagation(); toggleComplete(task); }}>
+                                {task.completed ? <CheckCircle2 size={18} className="text-green-400" /> : <Circle size={18} className="text-gray-200" />}
+                              </button>
+                              <div className="flex flex-col">
+                                <span className={`${task.completed ? 'line-through text-gray-300' : 'text-gray-700'} font-bold text-xs`}>{task.title}</span>
+                                {task.time && <span className="text-[9px] text-gray-400 flex items-center gap-1 mt-0.5"><Clock size={10}/> {task.time}</span>}
+                              </div>
+                            </div>
+                            <button onClick={(e) => { e.stopPropagation(); deleteTask(task.id); }} className="opacity-0 group-hover:opacity-100 p-2 hover:text-red-400 text-gray-200 transition-all"><Trash2 size={14}/></button>
+                          </div>
+                        ))}
+                        {dayTasks.length === 0 && <div className="col-span-full py-4 text-center text-gray-200 italic text-xs">Enjoy your day!</div>}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </section>
+      </main>
+
+      {/* Modal */}
+      {isModalOpen && (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-white/20 backdrop-blur-xl">
+          <div className="bg-white w-full max-w-md rounded-[3.5rem] shadow-2xl p-10 border border-white">
+            <h3 className={`text-2xl font-bold mb-8 ${theme.text} tracking-tight`}>{editingTask ? 'EDIT PLAN' : 'NEW PLAN'}</h3>
+            <form onSubmit={handleSaveTask} className="space-y-5">
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold text-gray-400 ml-4 uppercase tracking-widest">Plan Title</label>
+                <input autoFocus required type="text" className="w-full bg-gray-50 border-none rounded-[1.5rem] p-5 outline-none text-gray-700 font-bold placeholder:text-gray-200" value={formData.title} onChange={(e) => setFormData({...formData, title: e.target.value})} placeholder="What's happening?" />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-bold text-gray-400 ml-4 uppercase tracking-widest">Date</label>
+                  <input type="date" className="w-full bg-gray-50 border-none rounded-[1.5rem] p-5 outline-none text-gray-500 font-bold" value={formData.date} onChange={(e) => setFormData({...formData, date: e.target.value})} />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-bold text-gray-400 ml-4 uppercase tracking-widest">Time</label>
+                  <input type="time" className="w-full bg-gray-50 border-none rounded-[1.5rem] p-5 outline-none text-gray-500 font-bold" value={formData.time} onChange={(e) => setFormData({...formData, time: e.target.value})} />
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold text-gray-400 ml-4 uppercase tracking-widest">Notes</label>
+                <textarea rows="3" className="w-full bg-gray-50 border-none rounded-[1.5rem] p-5 outline-none resize-none text-gray-500 font-medium" value={formData.note} onChange={(e) => setFormData({...formData, note: e.target.value})} placeholder="Any reminders?" />
+              </div>
+              <div className="flex gap-4 pt-6">
+                <button type="button" onClick={() => setIsModalOpen(false)} className="flex-1 p-5 font-bold text-gray-300 hover:text-gray-400">DISCARD</button>
+                <button type="submit" className="flex-[2] p-5 rounded-[1.8rem] font-bold text-white shadow-xl transition-all active:scale-95" style={{ backgroundColor: theme.accentDeep }}>SAVE PLAN</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
