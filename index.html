@@ -69,7 +69,7 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [tasks, setTasks] = useState([]);
   const [currentDate, setCurrentDate] = useState(new Date());
-  const [viewMode, setViewMode] = useState('month'); // 'month' or 'week'
+  const [viewMode, setViewMode] = useState('month');
   const [editingTask, setEditingTask] = useState(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
@@ -152,18 +152,15 @@ export default function App() {
     });
   };
 
-  // 精準對齊月曆日期 (42格)
   const calendarDays = useMemo(() => {
     const firstDayOfMonth = new Date(currentYear, currentMonth, 1);
-    // getDay() 0=Sun, 1=Mon, ..., 6=Sat
-    // 我們想要 Mon=0, Tue=1, ..., Sun=6 的邏輯
     let firstDayIndex = firstDayOfMonth.getDay(); 
-    if (firstDayIndex === 0) firstDayIndex = 7; // 把週日從 0 改成 7
-    const daysFromPrev = firstDayIndex - 1; // 計算前面要補幾天
+    if (firstDayIndex === 0) firstDayIndex = 7;
+    const daysFromPrev = firstDayIndex - 1;
 
     const days = [];
     const tempDate = new Date(currentYear, currentMonth, 1);
-    tempDate.setDate(tempDate.getDate() - daysFromPrev); // 回溯到該週的第一天(週一)
+    tempDate.setDate(tempDate.getDate() - daysFromPrev);
 
     for (let i = 0; i < 42; i++) {
       days.push(new Date(tempDate));
@@ -172,7 +169,6 @@ export default function App() {
     return days;
   }, [currentMonth, currentYear]);
 
-  // 生成當週天數 (7格)
   const weekDays = useMemo(() => {
     const tempDate = new Date(currentDate);
     let day = tempDate.getDay();
@@ -251,10 +247,26 @@ export default function App() {
     <div className={`min-h-screen ${theme.bg} transition-colors duration-500 font-sans text-sm p-4 md:p-8`}>
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Quicksand:wght@400;500;600;700&family=Noto+Sans+TC:wght@400;500;700&display=swap');
-        body { font-family: 'Quicksand', 'Noto Sans TC', sans-serif; overflow-x: hidden; }
+        
+        :root {
+          --current-accent: ${theme.accentDeep};
+        }
+
+        body { 
+          font-family: 'Quicksand', 'Noto Sans TC', sans-serif !important; 
+          overflow-x: hidden;
+          margin: 0;
+          padding: 0;
+        }
+
         .pastel-shadow { box-shadow: 0 10px 30px -10px rgba(0,0,0,0.03); }
         .custom-scrollbar::-webkit-scrollbar { width: 4px; }
         .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.05); border-radius: 10px; }
+        
+        /* 確保 Tailwind 類別在 GitHub Pages 上優先級正確 */
+        .holiday-tag {
+          background-color: var(--current-accent) !important;
+        }
       `}</style>
 
       {errorMsg && (
@@ -302,7 +314,6 @@ export default function App() {
       </header>
 
       <main className="max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-4 gap-8">
-        
         {/* Sidebar */}
         <section className="lg:col-span-1 space-y-6">
           <div className="bg-white/50 p-6 rounded-[2.5rem] border border-white pastel-shadow">
@@ -364,7 +375,6 @@ export default function App() {
                   const m = String(date.getMonth() + 1).padStart(2, '0');
                   const d = String(date.getDate()).padStart(2, '0');
                   const dateStr = `${y}-${m}-${d}`;
-
                   const isCurrentMonth = date.getMonth() === currentMonth;
                   const isToday = date.toDateString() === new Date().toDateString();
                   const dayTasks = tasks.filter(t => t.date === dateStr);
@@ -376,7 +386,7 @@ export default function App() {
                         <span className={`text-xs font-bold ${isToday ? 'bg-pink-400 text-white px-2 py-0.5 rounded-full' : (date.getDay() === 0 || date.getDay() === 6 ? 'text-pink-300' : 'text-gray-500')}`}>{date.getDate()}</span>
                         {isCurrentMonth && <button onClick={() => openAddModal(dateStr)} className="opacity-0 group-hover:opacity-100 p-1 text-gray-300"><Plus size={12}/></button>}
                       </div>
-                      {holiday && isCurrentMonth && <div className="text-[8px] px-1.5 py-0.5 rounded-full mb-1 inline-block font-bold text-white shadow-sm truncate max-w-full" style={{ backgroundColor: theme.accentDeep }}>{holiday.name}</div>}
+                      {holiday && isCurrentMonth && <div className="holiday-tag text-[8px] px-1.5 py-0.5 rounded-full mb-1 inline-block font-bold text-white shadow-sm truncate max-w-full">{holiday.name}</div>}
                       <div className="space-y-0.5">
                         {dayTasks.slice(0, 4).map(task => (
                           <div key={task.id} onClick={() => openEditModal(task)} className={`truncate text-[9px] px-1.5 py-0.5 rounded-md cursor-pointer font-bold border ${task.completed ? 'bg-gray-50 text-gray-200 border-transparent' : 'bg-white border-white/50 text-gray-600 shadow-sm'}`}>
@@ -396,7 +406,6 @@ export default function App() {
                 const m = String(date.getMonth() + 1).padStart(2, '0');
                 const d = String(date.getDate()).padStart(2, '0');
                 const dateStr = `${y}-${m}-${d}`;
-
                 const isToday = date.toDateString() === new Date().toDateString();
                 const dayTasks = tasks.filter(t => t.date === dateStr);
                 const holiday = getHoliday(dateStr);
@@ -408,7 +417,7 @@ export default function App() {
                         {WEEK_DAYS[(date.getDay() + 6) % 7]}
                       </span>
                       <span className={`text-3xl font-bold ${isToday ? 'text-pink-500' : 'text-gray-600'}`}>{date.getDate()}</span>
-                      {holiday && <span className="text-[9px] font-bold mt-2 px-2 py-0.5 rounded-full text-white" style={{ backgroundColor: theme.accentDeep }}>{holiday.name}</span>}
+                      {holiday && <span className="holiday-tag text-[9px] font-bold mt-2 px-2 py-0.5 rounded-full text-white">{holiday.name}</span>}
                     </div>
                     
                     <div className="flex-1 space-y-3">
@@ -432,7 +441,6 @@ export default function App() {
                             <button onClick={(e) => { e.stopPropagation(); deleteTask(task.id); }} className="opacity-0 group-hover:opacity-100 p-2 hover:text-red-400 text-gray-200 transition-all"><Trash2 size={14}/></button>
                           </div>
                         ))}
-                        {dayTasks.length === 0 && <div className="col-span-full py-4 text-center text-gray-200 italic text-xs">Enjoy your day!</div>}
                       </div>
                     </div>
                   </div>
